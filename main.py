@@ -19,7 +19,7 @@ bool_fast_decode = False
 def is_probably_date_string(inputString):
     return any(char.isdigit() for char in inputString) and len(inputString)>5
 
-text_reader = easyocr.Reader(['ru'], gpu=True)
+text_reader = easyocr.Reader(['en'], gpu=True)
 files_count, images = 0, []
 
 if bool_video: cap = cv2.VideoCapture('./vid_1.mp4')
@@ -31,7 +31,8 @@ while True:
     else: frame = cv2.imread('test1.jpg')
 
     # text recognition
-    recognized = text_reader.readtext(frame, rotation_info=[180])
+    cv2.imwrite('temp.jpg', frame)
+    recognized = text_reader.readtext('temp.jpg', rotation_info=[180], decoder='beamsearch')
     for (bbox, text, prob) in recognized:
         (tl, tr, br, bl) = bbox
         tl = (int(tl[0]), int(tl[1]))
