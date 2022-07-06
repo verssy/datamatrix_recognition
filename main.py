@@ -1,50 +1,61 @@
 
-import os
+import sys
 import cv2
-import pytesseract
+#import pytesseract
 import pylibdmtx.pylibdmtx as pdmtx
-import easyocr
 
 #pytesseract.pytesseract.tesseract_cmd=r'C:\Users\Дубровин\AppData\Local\Programs\Tesseract-OCR\tesseract.exe'
 
 # args
 files_prefix = "./imgs/barcode_"
 max_sides_ratio = 1.5
-min_area = 1000
+min_area = 600
 delta_xy = 10
-bool_save_video = True
+bool_save_video = False
 bool_video = True
-bool_fast_decode = False
+input_filename = 'vid_4.mp4'
+
+# get params
+#print('image / video [0 / 1]:', end=' ')
+#flag = sys.stdin.read(1)
+#print(flag)
+#if flag=='0': bool_video = False
+#else: bool_video = True
+#print('file name with extension:', end=' ')
+#input_filename = input()
 
 def is_probably_date_string(inputString):
     return any(char.isdigit() for char in inputString) and len(inputString)>5
 
-text_reader = easyocr.Reader(['en'], gpu=True)
+#text_reader = easyocr.Reader(['en'], gpu=True)
 files_count, images = 0, []
 
-if bool_video: cap = cv2.VideoCapture('./vid_1.mp4')
+if bool_video: cap = cv2.VideoCapture(f'./{input_filename}')
+cap_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+cap_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+cap_aspect = 3.2
 
 while True:
     if bool_video:
         _, frame = cap.read()
         if not _: break
-    else: frame = cv2.imread('test1.jpg')
+    else: frame = cv2.imread(f'{input_filename}')
 
     # text recognition
-    cv2.imwrite('temp.jpg', frame)
-    recognized = text_reader.readtext('temp.jpg', rotation_info=[180], decoder='beamsearch')
-    for (bbox, text, prob) in recognized:
-        (tl, tr, br, bl) = bbox
-        tl = (int(tl[0]), int(tl[1]))
-        tr = (int(tr[0]), int(tr[1]))
-        br = (int(br[0]), int(br[1]))
-        bl = (int(bl[0]), int(bl[1]))
-        if is_probably_date_string(text):
-            cv2.rectangle(frame, tl, br, (0, 255, 0), 1)
-            cv2.putText(frame, text, (tl[0], tl[1] - 10), cv2.FONT_HERSHEY_COMPLEX, 0.8, (0, 255, 0), 2)
+    #cv2.imwrite('temp.jpg', frame)
+    #recognized = text_reader.readtext('temp.jpg', rotation_info=[180], decoder='beamsearch')
+    #for (bbox, text, prob) in recognized:
+    #    (tl, tr, br, bl) = bbox
+    #    tl = (int(tl[0]), int(tl[1]))
+    #    tr = (int(tr[0]), int(tr[1]))
+    #    br = (int(br[0]), int(br[1]))
+    #    bl = (int(bl[0]), int(bl[1]))
+    #    if is_probably_date_string(text):
+    #        cv2.rectangle(frame, tl, br, (0, 255, 0), 1)
+    #        cv2.putText(frame, text, (tl[0], tl[1] - 10), cv2.FONT_HERSHEY_COMPLEX, 0.8, (0, 255, 0), 2)
     
     img_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    img_gray = cv2.resize(img_gray, None, fx=0.5, fy=0.5, interpolation=cv2.INTER_CUBIC)
+    img_gray = cv2.resize(img_gray, None, fx=1/cap_aspect, fy=1/cap_aspect, interpolation=cv2.INTER_CUBIC)
     img_gray = cv2.GaussianBlur(img_gray, (3, 3), 0)
     harris = cv2.cornerHarris(img_gray, 4, 3, 0.06)
     __, thr = cv2.threshold(harris, 0.001 * harris.max(), 255, cv2.THRESH_BINARY)
@@ -72,17 +83,16 @@ while True:
         h = h + dy * 2
         w = w + dx * 2
         if not (w / h > max_sides_ratio or h / w > max_sides_ratio):
-            tempimage = frame[y * 2: y * 2 + h * 2, x * 2: x * 2 + w * 2]
-            if bool_fast_decode: data = pdmtx.decode(tempimage, shrink=2, max_count=1)
-            else: data = pdmtx.decode(tempimage, max_count=1)
+            tempimage = frame[int(y * cap_aspect): int(y * cap_aspect + h * cap_aspect), int(x * cap_aspect): int(x * cap_aspect + w * cap_aspect)]
+            data = pdmtx.decode(tempimage, max_count=1)
             text = ""
             if len(data) > 0:
                 text = data[0].data.decode('UTF-8')
                 text = text.replace('\x1d', '\\x1d')
                 print(f"found barcode: {text}")
-                cv2.putText(frame, text, (x * 2, y * 2 + h * 2 + 20), cv2.FONT_HERSHEY_DUPLEX,
+                cv2.putText(frame, text, (int(x * cap_aspect), int(y * cap_aspect + h * cap_aspect + 20)), cv2.FONT_HERSHEY_DUPLEX,
                     1, (0, 0, 255), 2)
-                cv2.rectangle(frame, (x * 2, y * 2), (x * 2 + w * 2, y * 2 + h * 2), (0, 0, 255))
+            cv2.rectangle(frame, (int(x * cap_aspect), int(y * cap_aspect)), (int(x * cap_aspect + w * cap_aspect), int(y * cap_aspect + h * cap_aspect)), (0, 0, 255))
             
     cv2.imshow("image", frame)
     if bool_video and bool_save_video: images.append(frame)
