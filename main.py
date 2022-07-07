@@ -1,34 +1,30 @@
 
 import sys
 import cv2
-#import pytesseract
+import pytesseract.pytesseract as pytess
 import pylibdmtx.pylibdmtx as pdmtx
 
-#pytesseract.pytesseract.tesseract_cmd=r'C:\Users\Дубровин\AppData\Local\Programs\Tesseract-OCR\tesseract.exe'
+pytess.tesseract_cmd=r'C:\Users\Дубровин\AppData\Local\Programs\Tesseract-OCR\tesseract.exe'
 
 # args
 files_prefix = "./imgs/barcode_"
 max_sides_ratio = 1.5
 min_area = 600
 delta_xy = 10
-bool_save_video = False
+bool_save_video = True
 bool_video = True
-input_filename = 'vid_4.mp4'
-
-# get params
-#print('image / video [0 / 1]:', end=' ')
-#flag = sys.stdin.read(1)
-#print(flag)
-#if flag=='0': bool_video = False
-#else: bool_video = True
-#print('file name with extension:', end=' ')
-#input_filename = input()
+input_filename = 'vid_1.mp4'
 
 def is_probably_date_string(inputString):
     return any(char.isdigit() for char in inputString) and len(inputString)>5
 
 #text_reader = easyocr.Reader(['en'], gpu=True)
+
 files_count, images = 0, []
+new_test_iters = [2, 2, 2, 2, 2, 2]
+new_test_blurs = [1, 3, 1, 3, 1, 3]
+new_test_erodes = [(3, 3), (3, 3), (5, 5), (5, 5), (7, 7), (7, 7)]
+custom_config = r'-l deu --psm 6 tessedit_char_whitelist=0123456789/C'
 
 if bool_video: cap = cv2.VideoCapture(f'./{input_filename}')
 cap_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -41,7 +37,7 @@ while True:
         if not _: break
     else: frame = cv2.imread(f'{input_filename}')
 
-    # text recognition
+## text recognition with EasyOCR
     #cv2.imwrite('temp.jpg', frame)
     #recognized = text_reader.readtext('temp.jpg', rotation_info=[180], decoder='beamsearch')
     #for (bbox, text, prob) in recognized:
@@ -61,6 +57,23 @@ while True:
     __, thr = cv2.threshold(harris, 0.001 * harris.max(), 255, cv2.THRESH_BINARY)
     thr = thr.astype('uint8')
 
+## pytesseract text recognition
+    #assert len(new_test_iters) == len(new_test_blurs) == len(new_test_erodes)
+    #len_cases = len(new_test_iters)
+    #for i in range(len_cases):
+    #    temp_frame = cv2.erode(frame, new_test_erodes[i], iterations=2)
+    #    temp_frame = cv2.medianBlur(temp_frame, new_test_blurs[i])
+    #    image_data = pytess.image_to_string(temp_frame, config=custom_config)
+    #    print(image_data)
+    #    #image_data = pytess.image_to_data(temp_frame, output_type=pytess.Output.DICT, config=custom_config)
+    #    #for j in range(len(image_data['text'])):
+    #    #    text = image_data['text'][j]
+    #    #    if is_probably_date_string(text):
+    #    #        x, y, w, h = (image_data['left'][j], image_data['top'][j], image_data['width'][j], image_data['height'][j])
+    #    #        cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 255), 2)
+    #    #        cv2.putText(frame, text, (x, y + h + 20), cv2.FONT_HERSHEY_DUPLEX, 1, (0, 0, 255), 1)
+
+## pytesseract another variant
     #d = pytesseract.image_to_data(frame, output_type=pytesseract.Output.DICT)
     #n_boxes = len(d['text'])
     #for i in range(n_boxes):
@@ -68,8 +81,7 @@ while True:
     #        x, y, w, h = (d['left'][i], d['top'][i], d['width'][i], d['height'][i])
     #        text = d['text'][i]
     #        cv2.rectangle(frame, (x, y), (x + w , y + h), (0, 255, 255), 2)
-    #        cv2.putText(frame, text, (x, y + h + 20), cv2.FONT_HERSHEY_DUPLEX,
-    #                1, (0, 255, 255), 2)
+    #        cv2.putText(frame, text, (x, y + h + 20), cv2.FONT_HERSHEY_DUPLEX, 1, (0, 255, 255), 2)
 
     contours, _ = cv2.findContours(thr, cv2.RETR_TREE, cv2.CHAIN_APPROX_NONE)
     contours = list(filter(lambda x: cv2.contourArea(cv2.convexHull(x)) > min_area, contours))
@@ -94,7 +106,7 @@ while True:
                     1, (0, 0, 255), 2)
             cv2.rectangle(frame, (int(x * cap_aspect), int(y * cap_aspect)), (int(x * cap_aspect + w * cap_aspect), int(y * cap_aspect + h * cap_aspect)), (0, 0, 255))
             
-    cv2.imshow("image", frame)
+    cv2.imshow("image", cv2.resize(frame, (0, 0), fx=0.5, fy=0.5))
     if bool_video and bool_save_video: images.append(frame)
 
     if cv2.waitKey(1) & 0xFF == ord('q'):
