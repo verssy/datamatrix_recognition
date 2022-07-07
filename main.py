@@ -1,8 +1,11 @@
 
-import sys
+from time import sleep
 import cv2
 import pytesseract.pytesseract as pytess
 import pylibdmtx.pylibdmtx as pdmtx
+from colorama import Fore
+import pyfiglet
+import rich
 
 pytess.tesseract_cmd=r'C:\Users\Дубровин\AppData\Local\Programs\Tesseract-OCR\tesseract.exe'
 
@@ -11,12 +14,9 @@ files_prefix = "./imgs/barcode_"
 max_sides_ratio = 1.5
 min_area = 600
 delta_xy = 10
-bool_save_video = True
+bool_save_video = False
 bool_video = True
-input_filename = 'vid_1.mp4'
-
-def is_probably_date_string(inputString):
-    return any(char.isdigit() for char in inputString) and len(inputString)>5
+input_filename = 'vid_2.mp4'
 
 #text_reader = easyocr.Reader(['en'], gpu=True)
 
@@ -27,9 +27,12 @@ new_test_erodes = [(3, 3), (3, 3), (5, 5), (5, 5), (7, 7), (7, 7)]
 custom_config = r'-l deu --psm 6 tessedit_char_whitelist=0123456789/C'
 
 if bool_video: cap = cv2.VideoCapture(f'./{input_filename}')
-cap_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-cap_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-cap_aspect = 3.2
+#cap_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+#cap_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+cap_aspect = 3
+
+title = pyfiglet.figlet_format('Cold Factory', font='invita')
+rich.print(f'[spring_green3]{title}[/spring_green3]')
 
 while True:
     if bool_video:
@@ -101,10 +104,14 @@ while True:
             if len(data) > 0:
                 text = data[0].data.decode('UTF-8')
                 text = text.replace('\x1d', '\\x1d')
-                print(f"found barcode: {text}")
-                cv2.putText(frame, text, (int(x * cap_aspect), int(y * cap_aspect + h * cap_aspect + 20)), cv2.FONT_HERSHEY_DUPLEX,
-                    1, (0, 0, 255), 2)
-            cv2.rectangle(frame, (int(x * cap_aspect), int(y * cap_aspect)), (int(x * cap_aspect + w * cap_aspect), int(y * cap_aspect + h * cap_aspect)), (0, 0, 255))
+                spl = text.split('\\x1d')
+                if len(spl) == 2:
+                    print(Fore.GREEN + spl[0] + Fore.CYAN + '\\1xd' + Fore.GREEN + spl[1] + Fore.RESET)
+                else:
+                    print(f"found barcode: {text}")
+                
+                cv2.putText(frame, text, (int(x * cap_aspect), int(y * cap_aspect + h * cap_aspect + 20)), cv2.FONT_HERSHEY_DUPLEX, 1, (0, 255, 0), 2)
+            cv2.rectangle(frame, (int(x * cap_aspect), int(y * cap_aspect)), (int(x * cap_aspect + w * cap_aspect), int(y * cap_aspect + h * cap_aspect)), (0, 255, 0))
             
     cv2.imshow("image", cv2.resize(frame, (0, 0), fx=0.5, fy=0.5))
     if bool_video and bool_save_video: images.append(frame)
@@ -117,8 +124,8 @@ print('complite!')
 
 if bool_video and bool_save_video:
     if len(images)>0:
-        height, width, layers = images[1].shape
-        video = cv2.VideoWriter('output.avi', cv2.VideoWriter_fourcc(*'DIVX'), 20, (width, height))
+        (height, width, layers) = images[1].shape
+        video = cv2.VideoWriter('output.avi', cv2.VideoWriter_fourcc(*'DIVX'), 30, (width, height))
         for i in range(len(images)):
             video.write(images[i])
         video.release()
