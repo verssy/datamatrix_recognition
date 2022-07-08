@@ -6,8 +6,6 @@ import pytesseract.pytesseract as pytesseract
 
 pytesseract.tesseract_cmd=r'C:\Users\Дубровин\AppData\Local\Programs\Tesseract-OCR\tesseract.exe'
 
-input_filename = 'test.jpg'
-
 def handle_mouse(event, x, y, flags, param):
     global drawing_line_mode, config_line_points, temp_frame, frame
     if event == cv2.EVENT_LBUTTONDOWN:
@@ -39,7 +37,7 @@ def rotate_bound(image, angle):
     return cv2.warpAffine(image, M, (nW, nH))
 
 drawing_line_mode = 0
-frame = cv2.imread(input_filename)
+frame = cv2.imread('test.jpg')
 degrs = 0
 temp_frame = frame.copy()
 config_line_points = [-1, -1, -1, -1]
@@ -71,7 +69,6 @@ while True:
             else:
                 temp_frame = frame.copy()
                 config_line_points = [-1, -1, -1, -1]
-            # break
         else:
             cv2.putText(temp_frame, 'You bad', (10, 20), cv2.FONT_HERSHEY_PLAIN, 1.5, (0, 0, 255), 2)
 
