@@ -11,6 +11,9 @@ import pytesseract.pytesseract as pytesseract
 import re
 from random import randint
 from colorama import Fore
+import argparse
+from multiprocessing import Process, Manager
+import os
 
 
 ## Install https://github.com/UB-Mannheim/tesseract/wiki -> tesseract-ocr-w64-setup-v5.2.0.20220708.exe (64 bit) resp.
@@ -330,85 +333,114 @@ def vector_to_degrees(point_a, point_b):
     if vector[1] < 0:
         degrs = 360 - int(degrs)
     return degrs
+def process_fun(image, bounds, delta, threshold_c_param, thread_ptr, mutable_list):
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    thr = cv2.adaptiveThreshold(gray, 255.0, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY, 35, threshold_c_param)
+    element = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+    morphed = cv2.morphologyEx(thr, cv2.MORPH_CLOSE, element, iterations=1)
+    contours, _ = cv2.findContours(morphed, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+    polygons = [cv2.approxPolyDP(rc, 6.0, True).reshape(-1, 2) for rc in contours]
+    edge_sets = map(polygons_to_edges, polygons)
+    edge_sets = filter(filter_more_than_six, edge_sets)
+    edge_sets = filter(filter_longest_adjacent, edge_sets)
+    edge_sets = filter(filter_longest_approx_orthogonal, edge_sets)
+    edge_sets = filter(filter_longest_similiar_in_length, edge_sets)
+    fps = [get_finder_pattern(es) for es in edge_sets]
+    curr_date = str()
+    new_date_found = False
+    for finder in fps:
+        if finder.c1.x > delta and finder.c1.y > delta and finder.c1.x < bounds[1] and finder.c1.y < bounds[0]:
+            angel = vector_to_degrees((0, 0), (finder.c3.x - finder.c1.x, finder.c1.y - finder.c3.y)) - 180
+            circle_coords = (finder.bounds().x(), finder.bounds().y())
+            circle_radius = finder.bounds().radius()
+            x_min = int(max(circle_coords[0] - circle_radius - 10, 0))
+            x_max = int(min(circle_coords[0] + circle_radius + 10, bounds[1]))
+            y_min = int(max(circle_coords[1] - circle_radius - 10, 0))
+            y_max = int(min(circle_coords[1] + circle_radius + 10, bounds[0]))
+            temp_frame = image[y_min:y_max, x_min:x_max]
+            
+            if not new_date_found:
+                image_data = pytesseract.image_to_string(rotate_bound(image, angel), config='-l eng --psm 6 --oem 3')
+                m = re.findall('[0-3][0-9][.,\/-][0-1][0-9][.,\/-][0-9][0-9]', image_data)
+                if len(m) > 0:
+                    str_m = m[0]
+                    str_m = str_m.replace('/', '.')
+                    str_m = str_m.replace(',', '.')
+                    str_m = str_m.replace('-', '.')
+                    curr_date = str_m
+                    new_date_found = True
+            
+            decoded = dmtx.decode(temp_frame, max_count=1)
+            if len(decoded) > 0:
+                text = decoded[0].data.decode('UTF-8')
+                text = text.replace('\x1d', '\\x1d')
+                spl = text.split('\\x1d')
+                if len(spl) == 2:
+                    print(Fore.GREEN + spl[0] + Fore.LIGHTBLACK_EX + '\\1xd' + Fore.GREEN + spl[1] + Fore.RESET)
+                else:
+                    print(f'found barcode: {text}')
+                cv2.putText(image, text, (x_min, y_max + 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+                cv2.rectangle(image, (x_min, y_min), (x_max, y_max), (0, 0, 255), 1)
+
+    if new_date_found: cv2.putText(image, f'{curr_date}', (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 255, 0), 2)
+    mutable_list[thread_ptr] = mutable_list[thread_ptr] + [image]
 
 
 def main():
-    custom_config = '-l eng --psm 6 --oem 3'
-    curr_date = str()
+    parser = argparse.ArgumentParser(description='QR-extractor')
+    parser.add_argument('-v', '--video', help='process video (def = current camera)', type=str)
+    parser.add_argument('-t', '--threshold', help='threshold C value (def = 8)', type=int, choices=[8, 16], default=8)
+    args = parser.parse_args()
+    threshold_c_param = args.threshold
     delta = 5
-    cap = cv2.VideoCapture(0)
+    if args.video: cap = cv2.VideoCapture(args.video)
+    else: cap = cv2.VideoCapture(0)
     _, image = cap.read()
-    if image == None:
-        print('No camera found')
+    if not _:
+        print('No camera / video-file found')
         sleep(5)
-        exit(1)
-
+        return
     bounds = image.shape[:-1]
     bounds = (bounds[0] - delta, bounds[1] - delta)
+
+    cpu_count = os.cpu_count()
+    thread_pool = [Process()] * cpu_count
+    thread_ptr = 0
+    queue_ptr = 0
+
+    manager = Manager()
+    mutable_list = manager.list([[]] * cpu_count)
 
     while True:
         _, image = cap.read()
         if not _: break
 
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        thr = cv2.adaptiveThreshold(gray, 255.0, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY, 35, 8)
-        element = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
-        morphed = cv2.morphologyEx(thr, cv2.MORPH_CLOSE, element, iterations=1)
-        contours, _ = cv2.findContours(morphed, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
-        polygons = [cv2.approxPolyDP(rc, 6.0, True).reshape(-1, 2) for rc in contours]
-        edge_sets = map(polygons_to_edges, polygons)
-        edge_sets = filter(filter_more_than_six, edge_sets)
-        edge_sets = filter(filter_longest_adjacent, edge_sets)
-        edge_sets = filter(filter_longest_approx_orthogonal, edge_sets)
-        edge_sets = filter(filter_longest_similiar_in_length, edge_sets)
-        fps = [get_finder_pattern(es) for es in edge_sets]
+        while True:
+            if len(mutable_list[queue_ptr]) > 0:
+                frame = mutable_list[queue_ptr][0].copy()
+                mutable_list[queue_ptr] = mutable_list[queue_ptr][1::]
+                queue_ptr = (queue_ptr + 1) % cpu_count
+                frame = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
+                cv2.imshow('Factory', frame)
+                if cv2.waitKey(10) & 0xFF == ord('q'):
+                    cv2.destroyAllWindows()
+                    for process in thread_pool:
+                        if process.is_alive():
+                            process.join()
+                    return 0
+            else:
+                break
 
-        new_date_found = False
-        for finder in fps:
-            if finder.c1.x > delta and finder.c1.y > delta and finder.c1.x < bounds[1] and finder.c1.y < bounds[0]:
-                angel = vector_to_degrees((0, 0), (finder.c3.x - finder.c1.x, finder.c1.y - finder.c3.y)) - 180
-                circle_coords = (finder.bounds().x(), finder.bounds().y())
-                circle_radius = finder.bounds().radius()
-                x_min = int(max(circle_coords[0] - circle_radius - 10, 0))
-                x_max = int(min(circle_coords[0] + circle_radius + 10, bounds[1]))
-                y_min = int(max(circle_coords[1] - circle_radius - 10, 0))
-                y_max = int(min(circle_coords[1] + circle_radius + 10, bounds[0]))
-
-                temp_frame = image[y_min:y_max, x_min:x_max]
-                
-                if not new_date_found:
-                    image_data = pytesseract.image_to_string(rotate_bound(image, angel), config=custom_config)
-                    m = re.findall('[0-3][0-9][.,\/-][0-1][0-9][.,\/-][0-9][0-9]', image_data)
-                    if len(m) > 0:
-                        str_m = m[0]
-                        str_m = str_m.replace('/', '.')
-                        str_m = str_m.replace(',', '.')
-                        str_m = str_m.replace('-', '.')
-                        curr_date = str_m
-                        new_date_found = True
-                
-
-                decoded = dmtx.decode(temp_frame, max_count=1)
-                if len(decoded) > 0:
-                    text = decoded[0].data.decode('UTF-8')
-                    text = text.replace('\x1d', '\\x1d')
-                    spl = text.split('\\x1d')
-                    if len(spl) == 2:
-                        print(Fore.GREEN + spl[0] + Fore.LIGHTBLACK_EX + '\\1xd' + Fore.GREEN + spl[1] + Fore.RESET)
-                    else:
-                        print(f'found barcode: {text}')
-                    cv2.putText(image, text, (x_min, y_max + 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-                    cv2.rectangle(image, (x_min, y_min), (x_max, y_max), (0, 0, 255), 1)
-        
-        if new_date_found: cv2.putText(image, f'{str_m}', (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 255, 0), 2)
-        elif len(curr_date) > 0: cv2.putText(image, f'{str_m}', (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 255, 255), 2)
-
-        cv2.imshow('%', image)
-
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
+        if thread_pool[thread_ptr].is_alive():
+            thread_pool[thread_ptr].join()
+        thread_pool[thread_ptr] = Process(target=process_fun, args=(image, bounds, delta, threshold_c_param, thread_ptr, mutable_list))
+        thread_pool[thread_ptr].start()
+        thread_ptr = (thread_ptr + 1) % cpu_count
     
     cv2.destroyAllWindows()
+    for process in thread_pool:
+        if process.is_alive():
+            process.join()
 
 
 if __name__ == '__main__':
