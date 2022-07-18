@@ -284,7 +284,7 @@ def filter_longest_approx_orthogonal(edge_set):
 def filter_longest_similiar_in_length(edge_set):
     i, j = longest_pair_indices(edge_set)
     l_i, l_j = (_length(edge_set[x]) for x in (i, j))
-    return abs(l_i - l_j)/abs(l_i + l_j) < 0.05
+    return abs(l_i - l_j)/abs(l_i + l_j) < 0.1
 
 
 ## FINDER PATTERN
@@ -344,7 +344,7 @@ def process_fun(image, bounds, delta, threshold_c_param, thread_ptr, mutable_lis
     edge_sets = filter(filter_more_than_six, edge_sets)
     edge_sets = filter(filter_longest_adjacent, edge_sets)
     edge_sets = filter(filter_longest_approx_orthogonal, edge_sets)
-    edge_sets = filter(filter_longest_similiar_in_length, edge_sets)
+    #edge_sets = filter(filter_longest_similiar_in_length, edge_sets)
     fps = [get_finder_pattern(es) for es in edge_sets]
     curr_date = str()
     new_date_found = False
@@ -398,7 +398,7 @@ def main():
     _, image = cap.read()
     if not _:
         print('No camera / video-file found')
-        sleep(5)
+        sleep(2)
         return
     bounds = image.shape[:-1]
     bounds = (bounds[0] - delta, bounds[1] - delta)
@@ -416,13 +416,15 @@ def main():
         if not _: break
 
         while True:
+            if thread_pool[queue_ptr].is_alive():
+                thread_pool[queue_ptr].join()
             if len(mutable_list[queue_ptr]) > 0:
                 frame = mutable_list[queue_ptr][0].copy()
                 mutable_list[queue_ptr] = mutable_list[queue_ptr][1::]
                 queue_ptr = (queue_ptr + 1) % cpu_count
                 frame = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
                 cv2.imshow('Factory', frame)
-                if cv2.waitKey(10) & 0xFF == ord('q'):
+                if cv2.waitKey(1) & 0xFF == ord('q'):
                     cv2.destroyAllWindows()
                     for process in thread_pool:
                         if process.is_alive():
@@ -431,8 +433,6 @@ def main():
             else:
                 break
 
-        if thread_pool[thread_ptr].is_alive():
-            thread_pool[thread_ptr].join()
         thread_pool[thread_ptr] = Process(target=process_fun, args=(image, bounds, delta, threshold_c_param, thread_ptr, mutable_list))
         thread_pool[thread_ptr].start()
         thread_ptr = (thread_ptr + 1) % cpu_count
