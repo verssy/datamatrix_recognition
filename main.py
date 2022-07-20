@@ -280,11 +280,12 @@ def filter_longest_adjacent(edge_set):
 def filter_longest_approx_orthogonal(edge_set):
     i, j = longest_pair_indices(edge_set)
     v_i, v_j = (np.subtract(*edge_set[x]) for x in (i, j))
-    return abs(_cosine(v_i, v_j)) < 0.15
+    #return abs(_cosine(v_i, v_j)) < 0.15
+    return abs(_cosine(v_i, v_j)) < 0.15 # ~16 degrees
 def filter_longest_similiar_in_length(edge_set):
     i, j = longest_pair_indices(edge_set)
     l_i, l_j = (_length(edge_set[x]) for x in (i, j))
-    return abs(l_i - l_j)/abs(l_i + l_j) < 0.1
+    return abs(l_i - l_j)/abs(l_i + l_j) < 0.2
 
 
 ## FINDER PATTERN
@@ -314,6 +315,15 @@ def get_other_vertex(vertex, edge):
 
 ## DOMAIN
 
+DIM=(1576, 663)
+K=np.array([[935.9870786585898, 0.0, 788.7869957151664], [0.0, 662.6319360114222, 341.7118627563714], [0.0, 0.0, 1.0]])
+D=np.array([[-0.17574049635631422], [0.18891297353073158], [-0.26821132512804], [0.15348226070040832]])
+map1, map2 = cv2.fisheye.initUndistortRectifyMap(K, D, np.eye(3), K, DIM, cv2.CV_16SC2)
+
+def anti_fisheye(frame) -> cv2.Mat:
+    frame = cv2.resize(frame, DIM)
+    undistorted_frame = cv2.remap(frame, map1, map2, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
+    return undistorted_frame
 def rotate_bound(image, angle):
     (h, w) = image.shape[:2]
     (cX, cY) = (w // 2, h // 2)
@@ -333,8 +343,9 @@ def vector_to_degrees(point_a, point_b):
     if vector[1] < 0:
         degrs = 360 - int(degrs)
     return degrs
-def process_fun(image, bounds, delta, threshold_c_param, thread_ptr, mutable_list):
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+def process_fun(image, bounds, delta, threshold_c_param, thread_ptr, mutable_list, roix1, roix2):
+    roix_image = image[0:bounds[0], roix1:roix2]
+    gray = cv2.cvtColor(roix_image, cv2.COLOR_BGR2GRAY)
     thr = cv2.adaptiveThreshold(gray, 255.0, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY, 35, threshold_c_param)
     element = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
     morphed = cv2.morphologyEx(thr, cv2.MORPH_CLOSE, element, iterations=1)
@@ -344,12 +355,12 @@ def process_fun(image, bounds, delta, threshold_c_param, thread_ptr, mutable_lis
     edge_sets = filter(filter_more_than_six, edge_sets)
     edge_sets = filter(filter_longest_adjacent, edge_sets)
     edge_sets = filter(filter_longest_approx_orthogonal, edge_sets)
-    #edge_sets = filter(filter_longest_similiar_in_length, edge_sets)
+    edge_sets = filter(filter_longest_similiar_in_length, edge_sets)
     fps = [get_finder_pattern(es) for es in edge_sets]
     curr_date = str()
     new_date_found = False
     for finder in fps:
-        if finder.c1.x > delta and finder.c1.y > delta and finder.c1.x < bounds[1] and finder.c1.y < bounds[0]:
+        if finder.c1.x > delta and finder.c1.y > delta and finder.c1.x < bounds[1] - delta and finder.c1.y < bounds[0] - delta:
             angel = vector_to_degrees((0, 0), (finder.c3.x - finder.c1.x, finder.c1.y - finder.c3.y)) - 180
             circle_coords = (finder.bounds().x(), finder.bounds().y())
             circle_radius = finder.bounds().radius()
@@ -357,7 +368,7 @@ def process_fun(image, bounds, delta, threshold_c_param, thread_ptr, mutable_lis
             x_max = int(min(circle_coords[0] + circle_radius + 10, bounds[1]))
             y_min = int(max(circle_coords[1] - circle_radius - 10, 0))
             y_max = int(min(circle_coords[1] + circle_radius + 10, bounds[0]))
-            temp_frame = image[y_min:y_max, x_min:x_max]
+            temp_frame = roix_image[y_min:y_max, x_min:x_max]
             
             if not new_date_found:
                 image_data = pytesseract.image_to_string(rotate_bound(image, angel), config='-l eng --psm 6 --oem 3')
@@ -376,11 +387,11 @@ def process_fun(image, bounds, delta, threshold_c_param, thread_ptr, mutable_lis
                 text = text.replace('\x1d', '\\x1d')
                 spl = text.split('\\x1d')
                 if len(spl) == 2:
-                    print(Fore.GREEN + spl[0] + Fore.LIGHTBLACK_EX + '\\1xd' + Fore.GREEN + spl[1] + Fore.RESET)
-                else:
-                    print(f'found barcode: {text}')
-                cv2.putText(image, text, (x_min, y_max + 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-                cv2.rectangle(image, (x_min, y_min), (x_max, y_max), (0, 0, 255), 1)
+                    text = (spl[0] + '\\1xd' + spl[1])
+                print(text)
+
+                cv2.putText(image, text, (x_min + roix1, y_max + 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+                cv2.rectangle(image, (x_min + roix1, y_min), (x_max + roix1, y_max), (0, 0, 255), 1)
 
     if new_date_found: cv2.putText(image, f'{curr_date}', (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 255, 0), 2)
     mutable_list[thread_ptr] = mutable_list[thread_ptr] + [image]
@@ -401,7 +412,9 @@ def main():
         sleep(2)
         return
     bounds = image.shape[:-1]
-    bounds = (bounds[0] - delta, bounds[1] - delta)
+    bounds = (bounds[0], bounds[1])
+    roix1 = int((bounds[1] / 5) * 2)
+    roix2 = int((bounds[1] / 5) * 3)
 
     cpu_count = os.cpu_count()
     thread_pool = [Process()] * cpu_count
@@ -410,32 +423,48 @@ def main():
 
     manager = Manager()
     mutable_list = manager.list([[]] * cpu_count)
-
+    images = []
+    end_flag = False
     while True:
         _, image = cap.read()
         if not _: break
+        image = anti_fisheye(image)
 
         while True:
             if thread_pool[queue_ptr].is_alive():
                 thread_pool[queue_ptr].join()
             if len(mutable_list[queue_ptr]) > 0:
                 frame = mutable_list[queue_ptr][0].copy()
+                cv2.line(frame, (roix1, 0), (roix1, bounds[1]), (0, 255, 0), 1)
+                cv2.line(frame, (roix2, 0), (roix2, bounds[1]), (0, 255, 0), 1)
                 mutable_list[queue_ptr] = mutable_list[queue_ptr][1::]
                 queue_ptr = (queue_ptr + 1) % cpu_count
                 frame = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
                 cv2.imshow('Factory', frame)
+                images.append(frame)
                 if cv2.waitKey(1) & 0xFF == ord('q'):
                     cv2.destroyAllWindows()
                     for process in thread_pool:
                         if process.is_alive():
                             process.join()
-                    return 0
+                    end_flag = True
+                    break
             else:
                 break
+        
+        if end_flag:
+            break
 
-        thread_pool[thread_ptr] = Process(target=process_fun, args=(image, bounds, delta, threshold_c_param, thread_ptr, mutable_list))
+        thread_pool[thread_ptr] = Process(target=process_fun, args=(image, bounds, delta, threshold_c_param, thread_ptr, mutable_list, roix1, roix2))
         thread_pool[thread_ptr].start()
         thread_ptr = (thread_ptr + 1) % cpu_count
+    
+    height, width, _ = images[1].shape
+    video = cv2.VideoWriter('output.avi', cv2.VideoWriter_fourcc(*'DIVX'), 20, (width, height))
+    for i in range(len(images)):
+        video.write(images[i])
+    video.release()
+    cap.release()
     
     cv2.destroyAllWindows()
     for process in thread_pool:
