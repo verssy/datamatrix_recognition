@@ -344,6 +344,23 @@ def vector_to_degrees(point_a, point_b):
     if vector[1] < 0:
         degrs = 360 - int(degrs)
     return degrs
+def rotate_bound(image, angle):
+    (h, w) = image.shape[:2]
+    (cX, cY) = (w // 2, h // 2)
+    M = cv2.getRotationMatrix2D((cX, cY), -angle, 1.0)
+    cos = np.abs(M[0, 0])
+    sin = np.abs(M[0, 1])
+    nW = int((h * sin) + (w * cos))
+    nH = int((h * cos) + (w * sin))
+    M[0, 2] += (nW / 2) - cX
+    M[1, 2] += (nH / 2) - cY
+    return cv2.warpAffine(image, M, (nW, nH))
+def gs1_is_valid(string: str):
+    regex_filter = r'01[0-9]{14}21\S{10}93\S{4}'
+    result = re.match(regex_filter, string)
+    if not result:
+        return False
+    return True
 
 def process_frame(frame, bounds, thread_ptr, mutable_list):
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -380,7 +397,10 @@ def process_frame(frame, bounds, thread_ptr, mutable_list):
             temp_frame = frame[y_min:y_max, x_min:x_max]
             decoded = pylibdmtx.decode(temp_frame, max_count=1)
             if len(decoded) > 0:
-                print(decoded)
+                print(decoded, end=' ')
+#   TODO: ISPRAVIT' !!!
+                if gs1_is_valid: print(':: valid')
+                else: print(':: INVALID !!!')
                 a = (finder.c1, finder.c2)
                 b = (finder.c1, finder.c3)
                 cv2.line(frame, (a[0].x, a[0].y), (a[1].x, a[1].y), (127, 255, 63), 2)
@@ -394,8 +414,10 @@ def main():
     cold_reader.start()
 
     image = cold_reader.read()
-    image = anti_fisheye(image)
-    image = cv2.resize(image, (640, 270), interpolation=cv2.INTER_LINEAR)
+    #image = anti_fisheye(image)
+    bounds = image.shape[:-1]
+    print(bounds)
+    image = cv2.resize(image, (640, 360), interpolation=cv2.INTER_LINEAR)
     bounds = image.shape[:-1]
     print(bounds)
 
@@ -410,8 +432,8 @@ def main():
 
     while True:
         image = cold_reader.read()
-        image = anti_fisheye(image)
-        image = cv2.resize(image, (640, 270), interpolation=cv2.INTER_LINEAR)
+        #image = anti_fisheye(image)
+        image = cv2.resize(image, (640, 360), interpolation=cv2.INTER_LINEAR)
         
         while True:
             if thread_pool[queue_ptr].is_alive():
