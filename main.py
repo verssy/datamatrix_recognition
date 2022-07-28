@@ -1,7 +1,6 @@
 from multiprocessing.dummy import Manager, Process
 import os
 import cv2
-from cv2 import adaptiveThreshold
 import numpy as np
 from threading import Thread
 from queue import Queue
@@ -402,14 +401,17 @@ def process_frame(frame, bounds, thread_ptr, mutable_list):
             temp_frame = frame[y_min:y_max, x_min:x_max]
             decoded = pylibdmtx.decode(temp_frame, max_count=1)
             if len(decoded) > 0:
-                print(decoded, end=' ')
+                text = decoded[0].data.decode('UTF-8')
+                text = text.replace('\x1d', '\\x1d')
+                print(text, end=' ')
 #   TODO: ISPRAVIT' !!!
-                if gs1_is_valid: print(':: valid')
-                else: print(':: INVALID !!!')
+                if gs1_is_valid(text): print('valid')
+                else: print(':: Invalid ::')
                 a = (finder.c1, finder.c2)
                 b = (finder.c1, finder.c3)
-                cv2.line(frame, (a[0].x, a[0].y), (a[1].x, a[1].y), (127, 255, 63), 2)
-                cv2.line(frame, (b[0].x, b[0].y), (b[1].x, b[1].y), (127, 255, 63), 2)
+                #cv2.line(frame, (a[0].x, a[0].y), (a[1].x, a[1].y), (127, 255, 63), 2)
+                cv2.line(frame, (a[0].x, a[0].y), (a[1].x, a[1].y), (0, 0, 255), 2)
+                cv2.line(frame, (b[0].x, b[0].y), (b[1].x, b[1].y), (0, 0, 255), 2)
     
     mutable_list[thread_ptr] = mutable_list[thread_ptr] + [frame]
 
@@ -419,12 +421,9 @@ def main():
     cold_reader.start()
 
     image = cold_reader.read()
-    #image = anti_fisheye(image)
     bounds = image.shape[:-1]
     print(bounds)
-    bounds = decrease_resolution_by_ratio(bounds[1], bounds[0], 640 * 360)
-    #image = cv2.resize(image, (640, 360), interpolation=cv2.INTER_LINEAR)
-    #bounds = image.shape[:-1]
+    bounds = decrease_resolution_by_ratio(bounds[1], bounds[0], 400 * 300)
     print(bounds)
 
     cpu_count = os.cpu_count()
