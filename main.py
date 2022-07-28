@@ -230,8 +230,8 @@ class Point:
         return Point(arr[0], arr[1])
 
 class ColdCameraReader(object):
-    def __init__(self):
-        self.stream = cv2.VideoCapture('rtsp://admin:test12345@192.168.20.190')
+    def __init__(self, ip, login, password):
+        self.stream = cv2.VideoCapture(f'rtsp://{login}:{password}@{ip}')
         self.stopped = False
         self.Q = Queue(3)
     def start(self):
@@ -361,6 +361,11 @@ def gs1_is_valid(string: str):
     if not result:
         return False
     return True
+def decrease_resolution_by_ratio(resx, resy, expec_area):
+    res_ratio = resx / resy
+    height = int(math.sqrt(expec_area / res_ratio))
+    width = int(height * res_ratio)
+    return [width, height]
 
 def process_frame(frame, bounds, thread_ptr, mutable_list):
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -410,15 +415,16 @@ def process_frame(frame, bounds, thread_ptr, mutable_list):
 
 
 def main():
-    cold_reader = ColdCameraReader()
+    cold_reader = ColdCameraReader('192.168.20.190', 'admin', 'test12345')
     cold_reader.start()
 
     image = cold_reader.read()
     #image = anti_fisheye(image)
     bounds = image.shape[:-1]
     print(bounds)
-    image = cv2.resize(image, (640, 360), interpolation=cv2.INTER_LINEAR)
-    bounds = image.shape[:-1]
+    bounds = decrease_resolution_by_ratio(bounds[1], bounds[0], 640 * 360)
+    #image = cv2.resize(image, (640, 360), interpolation=cv2.INTER_LINEAR)
+    #bounds = image.shape[:-1]
     print(bounds)
 
     cpu_count = os.cpu_count()
@@ -433,7 +439,7 @@ def main():
     while True:
         image = cold_reader.read()
         #image = anti_fisheye(image)
-        image = cv2.resize(image, (640, 360), interpolation=cv2.INTER_LINEAR)
+        image = cv2.resize(image, (bounds[0], bounds[1]), interpolation=cv2.INTER_LINEAR)
         
         while True:
             if thread_pool[queue_ptr].is_alive():
